@@ -3,66 +3,87 @@ import numpy
 from exceptions import SimulationError
 
 
+# The memory box is a little container for the values so we can pass them by reference and change the values easily
+# even if it's from a register or from memory
+class MemoryBox:
+    value = 0
+
+    def __init__(self, value=0):
+        self.value = value
+
+
 class Environment:
-    # Instructions data
-    current_instruction = 0
-    next_instruction = 0
+    # Instruction labels
+    __labels = {}
 
     # Registers data
-    nb_registers = 0
-    registers = []
+    __nb_registers = 0
+    __registers = []
 
     # Memory data
-    memory_size = 0
-    memory = []
-    variables = {}
+    __memory_size = 0
+    __memory = []
+    __variables = {}
 
     __bloc_size__ = 32
 
-    def __init__(self, nb_registers, memory_size):
+    # Init variables
+    def __init__(self, nb_registers, memory_size, labels):
+        self.__labels = labels
 
-        self.nb_registers = nb_registers
-        self.registers = [0 for _ in range(nb_registers)]
+        self.__nb_registers = nb_registers
+        self.__registers = [MemoryBox() for _ in range(nb_registers)]
 
         # Special contraint to be able to print memory
         if memory_size % self.__bloc_size__ != 0:
             raise ValueError("Memory size must be a multiple of " + str(self.__bloc_size__))
-        self.memory_size = memory_size
-        self.memory = [0 for _ in range(self.memory_size)]
+        self.__memory_size = memory_size
+        self.__memory = [MemoryBox() for _ in range(self.__memory_size)]
 
-    def locate_memory(self, operand, can_create_variable):
-        # Try to get the memory adress
+    # Protect the get of a variable to ensure a correct exception if needed
+    def fetch_variable(self, variable, can_create_variable=False):
+        # Try to get the memory address
 
-        # First method, it's simply a variable
-        if operand.isalpha():
-            # We are directly accessing a variable and we can create: we are probably in a store
-            if operand not in self.variables:
-                if not can_create_variable:
-                    raise SimulationError("The variable «" + operand + "» cannot be found!")
-                elif len(self.variables) == self.memory_size:
-                    raise SimulationError("The maximum number of variables has been reached!")
-                self.variables[operand] = len(self.variables)
+        if not variable.isalpha():
+            raise SimulationError("Variable «" + variable + "» is not a valid name.")
 
-            return self.variables[operand]
+        # Manage the variable creation if needed
+        if variable not in self.__variables:
+            if not can_create_variable:
+                raise SimulationError("The variable «" + variable + "» cannot be found!")
+            elif len(self.__variables) == self.__memory_size:
+                raise SimulationError("The maximum number of variables has been reached!")
+            self.__variables[variable] = len(self.__variables)
 
-    def locate_register(self, operand):
-        register_index = operand
-        if register_index[0] != "R" and len(register_index) < 2:
-            raise SimulationError("«" + operand + "» is not a valid register")
+        return self.__variables[variable]
 
-        register_index = int(register_index[1:])
-        if register_index < 0 or register_index >= self.nb_registers:
-            raise SimulationError("«" + operand + "» is out of bound")
+    # Protect the register from OOB
+    def fetch_register(self, index):
+        if index < 0 or index >= self.__nb_registers:
+            raise SimulationError("«R" + str(index) + "» is out of bound")
+        return self.__registers[index]
 
-        return register_index
+    # Protect the memory from OOB
+    def fetch_memory(self, address):
+        if address < 0 or address >= self.__memory_size:
+            raise SimulationError("«R" + str(address) + "» is out of bound")
+        return self.__memory[address]
 
+    def fetch_label_mapping(self, label):
+        if label not in self.__labels:
+            raise SimulationError("«" + label + "» has not been found in the program")
+        return self.__labels[label]
+
+    # Pretty Print
     def print(self):
+        registers = [r.value for r in self.__registers]
+        memory = [m.value for m in self.__memory]
         print("\nState of simulation: ")
-        print("Registers: " + str(self.registers))
+        print("Registers: " + str(registers))
 
         print("\nMemory:")
         row_size = self.__bloc_size__
-        column_size = int(self.memory_size / row_size)
+        column_size = int(self.__memory_size / row_size)
 
-        matrix = numpy.reshape(self.memory, (column_size, row_size))
+        matrix = numpy.reshape(memory, (column_size, row_size))
         print(matrix)

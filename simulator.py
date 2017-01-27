@@ -1,112 +1,211 @@
 import time
 
-from environment import Environment
-from exceptions import ParsingError, SimulationError
-from instructions import EmptyInstruction, LoadInstruction, StoreInstruction, BranchInstruction
+from arpeggio import PTNodeVisitor, visit_parse_tree
+
+from environment import Environment, MemoryBox
+from exceptions import SimulationError
 
 
-def build_instruction(tokens, line_number, labels):
-    if len(tokens) == 0:
-        return EmptyInstruction(tokens, line_number)
+# Visitor for the preprocessing phase
+# What we do:
+# 1. Fetch all the label tags we can jump to
+# 2. Memorize the label target on jump node directly
+# 3. Register the memory usage (read or write)
 
-    operator = tokens[0]
-    operands = tokens[1:]
-    inst = None
-    if operator == "LD":
-        inst = LoadInstruction(operands, line_number)
-    elif operator == "ST":
-        inst = StoreInstruction(operands, line_number)
-    elif operator == "BR":
-        inst = BranchInstruction(operands, line_number, labels)
-
-    return inst
-
-
-class Simulator:
-    instructions = []
+class PreprocessVisitor(PTNodeVisitor):
     labels = {}
 
-    def __init__(self, lines):
-        # Data to help the parsing
-        valid_instructions = set(["LD", "ST", "BR"])
+    def visit__default__(self, node, children):
+        return None
 
-        # Tokenize all the instructions
-        dirty_instructions = []
-        for line in lines:
-            # Replace a comment by an empty line
-            if len(line) > 0 and line[0] == "#":
-                dirty_instructions.append([])
-            else:
-                dirty_instructions.append(line.split())
+    def visit_program(self, node, children):
+        node.labels = self.labels
 
-        # Prepare the instructions
-        for line_number, instruction in enumerate(dirty_instructions):
-            line_number += 1  # Line number start at 1
-            nb_labels = 0
-            for index, token in enumerate(instruction):
-                # First identify all the labels and remove them
-                if token[-1:] == ":":
-                    label = token[:-1]
-                    if not label.isalpha():
-                        raise ParsingError("«" + label + "» is not a valid label at line " + str(line_number))
+    def visit_load_operation(self, node, children):
+        node[1].memory_mode = "write"
 
-                    if label in self.labels:
-                        raise ParsingError("«" + label + "» is duplicated at line " + str(line_number))
+    def visit_store_operation(self, node, children):
+        node[1].memory_mode = "write"
 
-                    self.labels[label] = line_number
-                    nb_labels += 1
-                else:
-                    break
+    def visit_binary_computation_operation(self, node, children):
+        node[1].memory_mode = "write"
 
-            # Check that the remaining tokens don't contains labels
-            for index, token in enumerate(instruction[nb_labels:]):
-                if token[-1:] == ":":
-                    raise ParsingError("Unexpected label encountered at line " + str(line_number))
+    def visit_unary_computation_operation(self, node, children):
+        node[1].memory_mode = "write"  # In reality it's write AND read, but whatever
 
-            # Remove the labels from the dirty instructions
-            dirty_instructions[line_number - 1] = instruction[nb_labels:]
+    def visit_conditional_jump_operation(self, node, children):
+        node.label_target = node[-1].value
 
-        # Now that the labels are known, build all the instruction
-        for line_number, instruction in enumerate(dirty_instructions):
-            line_number += 1  # Line number start at 1
+    def visit_unconditional_jump_operation(self, node, children):
+        node.label_target = node[-1].value
 
-            # Check the validity of instructions
-            if len(instruction) > 0 and instruction[0] not in valid_instructions:
-                raise ParsingError("Invalid instruction «" + instruction[0] + "» found at line " + str(line_number))
+    def visit_memory(self, node, children):
+        # Default mode is read
+        node.memory_mode = "read"
 
-            # Build the instruction itself
-            inst = build_instruction(instruction, line_number, self.labels)
-            self.instructions.append(inst)
+    def visit_constant(self, node, children):
+        # Default mode is read
+        node.memory_mode = "read"
+
+    def visit_register(self, node, children):
+        # Default mode is read
+        node.memory_mode = "read"
+
+    def visit_label_marker(self, node, children):
+        # Memorize the labels
+        self.labels[node[0].value] = node.instruction
+
+
+# It's the main visitor that is simulating all the instructions
+# Environment is a class that is storing all the runtime data and the labels (does not store the instruction)
+# The root is not the program, but an instruction (We manage the visit of the instructions at a higher level).
+# The children are the return values from the children of a node. Their contents change depending of the type.
+# By example, an operation may return the next instruction, the register will return the value in a container
+class SimulatorVisitor(PTNodeVisitor):
+    environment = None
+
+    def __init__(self, environment):
+        self.environment = environment
+        super().__init__()
+
+    def visit__default__(self, node, children):
+        return None
+
+    def visit_instruction(self, node, children):
+        # The child of an instruction is a label and an operation
+        # The only result from childs are next operations
+        next_instruction = node.instruction + 1
+        if len(children) == 1:
+            next_instruction = children[-1]
+        elif len(children) > 1:
+            raise SimulationError("Unexpected number of children")
+
+        return next_instruction
+
+    def visit_load_operation(self, node, children):
+        children[0].value = children[1].value
+
+    def visit_store_operation(self, node, children):
+        children[0].value = children[1].value
+
+    def visit_binary_computation_operation(self, node, children):
+        dest = children[0]
+        src1 = children[1].value
+        src2 = children[2].value
+
+        if node[0].value == "ADD":
+            dest.value = src1 + src2
+        elif node[0].value == "SUB":
+            dest.value = src1 - src2
+        elif node[0].value == "MUL":
+            dest.value = src1 * src2
+        elif node[0].value == "DIV":
+            dest.value = int(src1 / src2)
+
+    def visit_unary_computation_operation(self, node, children):
+        if node[0].value == "INC":
+            children[0].value += 1
+        elif node[0].value == "DEC":
+            children[0].value -= 1
+
+    def visit_conditional_jump_operation(self, node, children):
+        jump = False
+        op = node[0].value
+        val = children[0].value
+
+        if op == "BGTZ":
+            jump = val > 0
+        elif op == "BGETZ":
+            jump = val >= 0
+        elif op == "BLTZ":
+            jump = val < 0
+        elif op == "BLETZ":
+            jump = val <= 0
+        elif op == "BETZ":
+            jump = val == 0
+        elif op == "BNETZ":
+            jump = val != 0
+
+        if jump:
+            return self.environment.fetch_label_mapping(node.label_target)
+
+    def visit_unconditional_jump_operation(self, node, children):
+        # Fetch the next operation and return it
+        return self.environment.fetch_label_mapping(node.label_target)
+
+    def visit_memory(self, node, children):
+        # "*"? (identifier / number) ("(" register ")")?
+
+        # Children 0 is a string or an int
+        if type(children[0]) is str:
+            address = self.environment.fetch_variable(children[0], node.memory_mode == "write")
+        else:
+            address = children[0]
+
+        # We are sure that there is (something)
+        if len(children) > 1:
+            address += children[-1].value
+
+        # Dereference the address
+        if node[0].value == "*":
+            address = self.environment.memory[address].value
+
+        return self.environment.fetch_memory(address)
+
+    def visit_constant(self, node, children):
+        return MemoryBox(children[-1])
+
+    def visit_register(self, node, children):
+        return self.environment.fetch_register(children[-1])
+
+    def visit_identifier(self, node, children):
+        return str(node.value)
+
+    def visit_number(self, node, children):
+        return int(node.value)
+
+
+# Simulator is the main class with the duty to run a simulation
+class Simulator:
+    # The root of the tree
+    root = None
+
+    def __init__(self, tree):
+        self.root = tree
+
+        # Preprocess the tree
+        visit_parse_tree(self.root, PreprocessVisitor())
 
     def simulate(self, max_time):
         # Prepare the environment for the simulation
-        environment = Environment(5, 256)
+        # 5 registers and 256 of memory
+        environment = Environment(5, 256, self.root.labels)
 
         start_time = time.time()
+
+        current_instruction = 0
+        current_line = self.root[current_instruction].line
 
         try:
             # Execute the simulation
             while True:
+                # While the time has not been exceeded
                 elapsed_time = time.time() - start_time
                 if elapsed_time > max_time:
                     raise SimulationError("Maximum time allowed for the simulation exceeded!")
 
-                # Prepare the next instruction (Jump instructions can overwrite this value)
-                environment.next_instruction = environment.current_instruction + 1
-
                 # Check if the simulation is over
-                if environment.current_instruction >= len(self.instructions):
+                if current_instruction >= len(self.root) - 1:
                     break
 
                 # Do the instruction logic
-                inst = self.instructions[environment.current_instruction]
-                inst.simulate(environment)
+                current_instruction = visit_parse_tree(self.root[current_instruction], SimulatorVisitor(environment))
+                current_line = self.root[current_instruction].line
 
-                # Jump to the next instruction
-                environment.current_instruction = environment.next_instruction
+        # Add the line who crashed so it's easier to debug
         except SimulationError as error:
             message, = error.args
-            raise SimulationError(message + " occurred at line " + str(environment.current_instruction+1))
+            raise SimulationError(message + " occurred at line " + str(current_line))
 
         # Print the finale results
         environment.print()
