@@ -10,7 +10,7 @@ This project is a little simulator of a basic machine code language from the boo
 The folder examples contains the programs that will be simulated. Just add any file with an «.asm» extension to test it.
 
 ### run_tests.py
-This is the main script of the project. Just execute it withtout arguments to execute the simulation
+This is the main script of the project. Just execute it without arguments to execute the simulation
 
 ### grammar.peg
 This is the file used to parse your file and to build the syntax tree

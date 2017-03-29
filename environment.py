@@ -11,6 +11,9 @@ class MemoryBox:
     def __init__(self, value=0):
         self.value = value
 
+    def __str__(self):
+        return str(self.value)
+
 
 class Environment:
     # Instruction labels
@@ -87,3 +90,7 @@ class Environment:
 
         matrix = numpy.reshape(memory, (column_size, row_size))
         print(matrix)
+
+    def clear(self):
+        for reg in self.__registers:
+            reg.value = 0

@@ -39,6 +39,12 @@ class PreprocessVisitor(PTNodeVisitor):
     def visit_unconditional_jump_operation(self, node, children):
         node.label_target = node[-1].value
 
+    def visit_print_operation(self, node, children):
+        node[1].memory_mode = "read"
+
+    def visit_input_operation(self, node, children):
+        node[1].memory_mode = "write"
+
     def visit_memory(self, node, children):
         # Default mode is read
         node.memory_mode = "read"
@@ -101,6 +107,8 @@ class SimulatorVisitor(PTNodeVisitor):
             dest.value = src1 * src2
         elif node[0].value == "DIV":
             dest.value = int(src1 / src2)
+        elif node[0].value == "MOD":
+            dest.value = src1 % src2
 
     def visit_unary_computation_operation(self, node, children):
         if node[0].value == "INC":
@@ -133,6 +141,20 @@ class SimulatorVisitor(PTNodeVisitor):
         # Fetch the next operation and return it
         return self.environment.fetch_label_mapping(node.label_target)
 
+    def visit_print_operation(self, node, children):
+        print(str(children[0]))
+
+    def visit_input_operation(self, node, children):
+        try:
+            value = int(input())
+            children[0].value = value
+        except:
+            print("Invalid input!")
+            exit(-1)
+
+    def visit_clear_operation(self, node, children):
+        self.environment.clear()
+
     def visit_memory(self, node, children):
         # "*"? (identifier / number) ("(" register ")")?
 
@@ -164,6 +186,9 @@ class SimulatorVisitor(PTNodeVisitor):
     def visit_number(self, node, children):
         return int(node.value)
 
+    def visit_string(self, node, children):
+        return str(node.value)[2:-2]
+
 
 # Simulator is the main class with the duty to run a simulation
 class Simulator:
@@ -178,8 +203,8 @@ class Simulator:
 
     def simulate(self, max_time):
         # Prepare the environment for the simulation
-        # 5 registers and 256 of memory
-        environment = Environment(5, 256, self.root.labels)
+        # 3 registers and 256 of memory
+        environment = Environment(3, 256, self.root.labels)
 
         start_time = time.time()
 
