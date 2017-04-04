@@ -65,10 +65,11 @@ CLEAR
 
 // TODO:: PUT THE BLOCK 2 THERE!
 
-// TODO:: This instruction is just a placeholder to let the code end, remove this!
+// TODO:: This instruction is just a placeholder to let the code end, remove the code below!
 LD R0, i
 DEC R0
 ST i, R0
+// TODO:: Remove the placeholder above of this line!
 
 CLEAR
 BR beginWhile
