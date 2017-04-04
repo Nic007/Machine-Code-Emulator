@@ -28,8 +28,8 @@ print_operation = print_operator (string / register / memory / constant)
 input_operation = input_operator (register / memory)
 clear_operation = clear_operator
 
-binary_computation_operation = binary_operator register arg_separator register arg_separator (register / constant)
-unary_computation_operation = unary_operator register
+binary_computation_operation = binary_operator register arg_separator (register / constant) arg_separator (register / constant)
+unary_computation_operation = unary_operator (register / constant)
 
 #  Stuff for address logic
 memory = "*"? (identifier / number) ("(" register ")")?
