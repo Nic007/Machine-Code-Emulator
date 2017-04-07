@@ -47,7 +47,7 @@ class Environment:
     def fetch_variable(self, variable, can_create_variable=False):
         # Try to get the memory address
 
-        if not variable.isalpha():
+        if not (variable[0].isalpha() and variable.isalnum()):
             raise SimulationError("Variable «" + variable + "» is not a valid name.")
 
         # Manage the variable creation if needed

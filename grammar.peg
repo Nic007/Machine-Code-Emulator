@@ -54,7 +54,7 @@ input_operator = "INPUT"
 clear_operator = "CLEAR"
 
 # List of other useful tokens
-identifier = r'[a-zA-Z]+'
+identifier = r'[a-zA-Z][a-zA-Z0-9]*'
 number = r'[0-9]+'
 EOL = '\n'
 arg_separator = ", "
